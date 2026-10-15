@@ -1,0 +1,6 @@
+{
+  "name": "PropVal AI - Indian Property Valuation & Loan Eligibility",
+  "description": "AI-powered property valuation, locality circle rates, and loan-to-value eligibility appraisal engine for Indian real estate.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
