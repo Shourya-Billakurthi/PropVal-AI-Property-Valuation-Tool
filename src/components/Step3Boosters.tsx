@@ -231,8 +231,11 @@ export const Step3Boosters: React.FC<Step3Props> = ({
 
   // Single floor base area and plot area calculation matching Step 1
   const effectiveBaseRate = location.userAdjustedRate || location.baseRatePerSqFt;
+  const activeCarpet = (property.areaMeasurementMode === 'ai_camera' && property.aiMeasuredCarpetAreaSqFt)
+    ? property.aiMeasuredCarpetAreaSqFt
+    : (property.carpetAreaSqFt || 1150);
   const singleFloorArea = property.singleFloorCarpetAreaSqFt || 
-    (property.numberOfFloors > 1 ? Math.round(property.carpetAreaSqFt / property.numberOfFloors) : property.carpetAreaSqFt);
+    (property.numberOfFloors > 1 ? Math.round(activeCarpet / property.numberOfFloors) : activeCarpet);
   const defaultPlotArea = property.plotAreaSqFt || Math.round(
     singleFloorArea * (property.subType === 'row_house' ? 1.5 : 2.0)
   );
@@ -242,44 +245,44 @@ export const Step3Boosters: React.FC<Step3Props> = ({
   if (property.category === 'residential') {
     if (property.subType === 'row_house') {
       const landVal = Math.round(defaultPlotArea * effectiveBaseRate * 0.75);
-      const constrVal = Math.round(property.carpetAreaSqFt * 2800);
+      const constrVal = Math.round(activeCarpet * 2800);
       baseTotalValue = landVal + constrVal;
     } else if (property.subType === 'independent_house') {
       const landVal = Math.round(defaultPlotArea * effectiveBaseRate * 0.85);
-      const constrVal = Math.round(property.carpetAreaSqFt * 3200);
+      const constrVal = Math.round(activeCarpet * 3200);
       baseTotalValue = landVal + constrVal;
     } else if (property.subType === 'builder_floor') {
       const udsMult = property.numberOfFloors >= 3 ? 1.25 : property.numberOfFloors === 2 ? 1.20 : 1.15;
-      const builtUp = Math.round(property.carpetAreaSqFt * 1.15);
+      const builtUp = Math.round(activeCarpet * 1.15);
       baseTotalValue = Math.round(builtUp * effectiveBaseRate * udsMult);
     } else {
       // Apartment Flat
       const duplexMult = (property.numberOfFloors >= 2 || property.floorConfig === '2_floors' || property.floorConfig === '3_plus_floors') ? 1.10 : 1.0;
-      const superBuiltUp = Math.round(property.carpetAreaSqFt * 1.25);
+      const superBuiltUp = Math.round(activeCarpet * 1.25);
       baseTotalValue = Math.round(superBuiltUp * effectiveBaseRate * duplexMult);
     }
   } else if (property.category === 'retail') {
     if (property.floorConfig === 'ground_plus_mezzanine') {
-      const gfArea = Math.round(property.carpetAreaSqFt * 0.67);
-      const mezArea = property.carpetAreaSqFt - gfArea;
+      const gfArea = Math.round(activeCarpet * 0.67);
+      const mezArea = activeCarpet - gfArea;
       baseTotalValue = Math.round(((gfArea * effectiveBaseRate) + (mezArea * effectiveBaseRate * 0.5)) * 1.15);
     } else if (property.numberOfFloors >= 2) {
-      const gfArea = Math.round(property.carpetAreaSqFt / property.numberOfFloors);
-      const upperArea = property.carpetAreaSqFt - gfArea;
+      const gfArea = Math.round(activeCarpet / property.numberOfFloors);
+      const upperArea = activeCarpet - gfArea;
       baseTotalValue = Math.round(((gfArea * effectiveBaseRate) + (upperArea * effectiveBaseRate * 0.5)) * 1.15);
     } else {
-      baseTotalValue = Math.round(property.carpetAreaSqFt * 1.15 * effectiveBaseRate);
+      baseTotalValue = Math.round(activeCarpet * 1.15 * effectiveBaseRate);
     }
   } else if (property.category === 'commercial') {
-    baseTotalValue = Math.round(property.carpetAreaSqFt * 1.25 * effectiveBaseRate);
+    baseTotalValue = Math.round(activeCarpet * 1.25 * effectiveBaseRate);
   } else {
-    baseTotalValue = Math.round(property.carpetAreaSqFt * 1.10 * effectiveBaseRate);
+    baseTotalValue = Math.round(activeCarpet * 1.10 * effectiveBaseRate);
   }
 
   // Boosted valuation applies total multiplier directly on top of the Step 1 baseline
   const bonusFactor = 1 + (totalMultiplier / 100);
   const boostedTotalValue = Math.round(baseTotalValue * bonusFactor);
-  const boostedRate = Math.round(boostedTotalValue / Math.max(1, property.carpetAreaSqFt));
+  const boostedRate = Math.round(boostedTotalValue / Math.max(1, activeCarpet));
 
   // Sample contextual prompts for quick 1-click insertion
   const samplePrompts = [

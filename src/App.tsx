@@ -48,6 +48,7 @@ export default function App() {
   const [property, setProperty] = useState<PropertyDetails>({
     category: 'residential',
     subType: 'apartment',
+    areaMeasurementMode: 'ai_camera',
     carpetAreaSqFt: 1150,
     singleFloorCarpetAreaSqFt: 1150,
     plotAreaSqFt: 2300,
@@ -113,6 +114,7 @@ export default function App() {
     setProperty({
       category: 'residential',
       subType: 'apartment',
+      areaMeasurementMode: 'ai_camera',
       carpetAreaSqFt: 1150,
       singleFloorCarpetAreaSqFt: 1150,
       plotAreaSqFt: 2300,
@@ -177,6 +179,7 @@ export default function App() {
           <Step2VideoScan
             location={location}
             property={property}
+            setProperty={setProperty}
             scanResults={scanResults}
             setScanResults={setScanResults}
             onNext={handleNextFromStep2}

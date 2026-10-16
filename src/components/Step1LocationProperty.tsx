@@ -19,14 +19,18 @@ import {
   ShieldCheck,
   AlertTriangle,
   Ruler,
-  Check
+  Check,
+  Camera,
+  FileText,
+  Scan
 } from 'lucide-react';
 import { 
   PropertyCategory, 
   LocationData, 
   PropertyDetails,
   FloorConfig,
-  MunicipalSanctionStatus
+  MunicipalSanctionStatus,
+  AreaMeasurementMode
 } from '../types/property';
 import { 
   fetchPincodeDetails, 
@@ -105,9 +109,35 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
 
   const effectiveRate = location.userAdjustedRate || location.baseRatePerSqFt;
 
+  const calculateProvisionalCarpetArea = (p: PropertyDetails): number => {
+    if (p.category === 'residential') {
+      const commonArea = 350;
+      const bedArea = (p.bedrooms || 2) * 150;
+      const bathArea = (p.bathrooms || 2) * 45;
+      const balcArea = (p.balconies || 1) * 50;
+      const subtotal = commonArea + bedArea + bathArea + balcArea;
+      const circulation = Math.round(subtotal * 0.10);
+      const singleFloor = subtotal + circulation;
+      const floors = Math.max(1, p.numberOfFloors || 1);
+      return singleFloor * floors;
+    } else if (p.category === 'retail') {
+      return 350 * Math.max(1, p.numberOfFloors || 1);
+    } else if (p.category === 'commercial') {
+      return 800 * Math.max(1, p.numberOfFloors || 1);
+    } else {
+      return 1500 * Math.max(1, p.numberOfFloors || 1);
+    }
+  };
+
+  const isAiCameraMode = property.areaMeasurementMode !== 'manual_deed';
+  const provisionalArea = calculateProvisionalCarpetArea(property);
+  const activeCarpetArea = isAiCameraMode 
+    ? (property.carpetAreaSqFt || provisionalArea)
+    : (property.carpetAreaSqFt || provisionalArea);
+
   // Single-floor base area fallback
   const singleFloorArea = property.singleFloorCarpetAreaSqFt || 
-    (property.numberOfFloors > 1 ? Math.round(property.carpetAreaSqFt / property.numberOfFloors) : property.carpetAreaSqFt);
+    (property.numberOfFloors > 1 ? Math.round(activeCarpetArea / property.numberOfFloors) : activeCarpetArea);
 
   // Default plot area for Row House (1.5x) or Villa (2.0x)
   const defaultPlotArea = property.plotAreaSqFt || Math.round(
@@ -124,7 +154,7 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
       // Land Value = (Fixed Plot Area × Pincode Base Rate × 0.75)
       // Construction Value = (Total Combined Carpet Area × ₹2,800/sq.ft)
       const landVal = Math.round(defaultPlotArea * effectiveRate * 0.75);
-      const constructionVal = Math.round(property.carpetAreaSqFt * 2800);
+      const constructionVal = Math.round(activeCarpetArea * 2800);
       estimatedMarketValue = landVal + constructionVal;
 
       if (property.municipalSanctionStatus === 'ground_floor_only' && property.numberOfFloors >= 2) {
@@ -140,7 +170,7 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
       // Land Value = (Fixed Plot Area × Pincode Base Rate × 0.85)
       // Construction Value = (Total Combined Carpet Area × ₹3,200/sq.ft)
       const landVal = Math.round(defaultPlotArea * effectiveRate * 0.85);
-      const constructionVal = Math.round(property.carpetAreaSqFt * 3200);
+      const constructionVal = Math.round(activeCarpetArea * 3200);
       estimatedMarketValue = landVal + constructionVal;
 
       if (property.municipalSanctionStatus === 'ground_floor_only' && property.numberOfFloors >= 2) {
@@ -153,7 +183,7 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
     } else if (property.subType === 'builder_floor') {
       // Builder Floor: Built-up = Carpet × 1.15, UDS multiplier (1.15x for 1F, 1.20x for 2F, 1.25x for 3+F)
       const udsMult = property.numberOfFloors >= 3 ? 1.25 : property.numberOfFloors === 2 ? 1.20 : 1.15;
-      const builtUpArea = Math.round(property.carpetAreaSqFt * 1.15);
+      const builtUpArea = Math.round(activeCarpetArea * 1.15);
       estimatedMarketValue = Math.round(builtUpArea * effectiveRate * udsMult);
 
       if (property.municipalSanctionStatus === 'ground_floor_only' && property.numberOfFloors >= 2) {
@@ -164,22 +194,22 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
     } else {
       // Apartment Flat: Super Built-up = Carpet × 1.25, Duplex multiplier 1.10x for 2+ floors
       const duplexMult = (property.numberOfFloors >= 2 || property.floorConfig === '2_floors' || property.floorConfig === '3_plus_floors') ? 1.10 : 1.0;
-      const superBuiltUpArea = Math.round(property.carpetAreaSqFt * 1.25);
+      const superBuiltUpArea = Math.round(activeCarpetArea * 1.25);
       estimatedMarketValue = Math.round(superBuiltUpArea * effectiveRate * duplexMult);
       sanctionedEligibleValue = estimatedMarketValue;
     }
   } else if (property.category === 'retail') {
     // Retail Shop with Mezzanine / Upper Floor: Ground 100% rate, Mezzanine/Upper 50% rate
     if (property.floorConfig === 'ground_plus_mezzanine') {
-      const gfArea = Math.round(property.carpetAreaSqFt * 0.67);
-      const mezArea = property.carpetAreaSqFt - gfArea;
+      const gfArea = Math.round(activeCarpetArea * 0.67);
+      const mezArea = activeCarpetArea - gfArea;
       const gfVal = gfArea * effectiveRate;
       const mezVal = mezArea * effectiveRate * 0.5;
       estimatedMarketValue = Math.round((gfVal + mezVal) * 1.15);
       sanctionedEligibleValue = estimatedMarketValue;
     } else if (property.numberOfFloors >= 2) {
-      const gfArea = Math.round(property.carpetAreaSqFt / property.numberOfFloors);
-      const upperArea = property.carpetAreaSqFt - gfArea;
+      const gfArea = Math.round(activeCarpetArea / property.numberOfFloors);
+      const upperArea = activeCarpetArea - gfArea;
       const gfVal = gfArea * effectiveRate;
       const upperVal = upperArea * effectiveRate * 0.5;
       estimatedMarketValue = Math.round((gfVal + upperVal) * 1.15);
@@ -190,15 +220,15 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
         sanctionedEligibleValue = estimatedMarketValue;
       }
     } else {
-      estimatedMarketValue = Math.round(property.carpetAreaSqFt * 1.15 * effectiveRate);
+      estimatedMarketValue = Math.round(activeCarpetArea * 1.15 * effectiveRate);
       sanctionedEligibleValue = estimatedMarketValue;
     }
   } else if (property.category === 'commercial') {
-    estimatedMarketValue = Math.round(property.carpetAreaSqFt * 1.25 * effectiveRate);
+    estimatedMarketValue = Math.round(activeCarpetArea * 1.25 * effectiveRate);
     sanctionedEligibleValue = estimatedMarketValue;
   } else {
     // Industrial
-    estimatedMarketValue = Math.round(property.carpetAreaSqFt * 1.10 * effectiveRate);
+    estimatedMarketValue = Math.round(activeCarpetArea * 1.10 * effectiveRate);
     sanctionedEligibleValue = estimatedMarketValue;
   }
 
@@ -823,152 +853,15 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
             </div>
           )}
 
-          {/* 4. Carpet Area Input + Dynamic Plot / Land Area for Villa & Row House */}
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Carpet Area Input */}
-              <div>
-                <div className="flex items-center justify-between gap-1 mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    {property.isMultiFloorMultiplierEnabled ? 'Single-Floor Carpet Area' : 'Total Combined Carpet Area'} (sq.ft)
-                  </label>
-                  <span className="text-[11px] text-slate-500">
-                    RERA standard
-                  </span>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="number"
-                    min={200}
-                    max={25000}
-                    step={25}
-                    value={
-                      property.isMultiFloorMultiplierEnabled 
-                        ? (property.singleFloorCarpetAreaSqFt || Math.round(property.carpetAreaSqFt / (property.numberOfFloors || 1)))
-                        : (property.carpetAreaSqFt || '')
-                    }
-                    onChange={(e) => {
-                      const val = Number(e.target.value) || 0;
-                      const isMulti = property.isMultiFloorMultiplierEnabled;
-                      const numFloors = property.numberOfFloors || 1;
-                      const combined = isMulti ? Math.round(val * numFloors) : val;
-                      const single = isMulti ? val : (numFloors > 1 ? Math.round(val / numFloors) : val);
-
-                      // Also update default plot area if Villa/Row House and not customized
-                      let updatedPlot = property.plotAreaSqFt;
-                      if (property.subType === 'row_house') {
-                        updatedPlot = Math.round(single * 1.5);
-                      } else if (property.subType === 'independent_house') {
-                        updatedPlot = Math.round(single * 2.0);
-                      }
-
-                      setProperty((prev) => ({
-                        ...prev,
-                        singleFloorCarpetAreaSqFt: single,
-                        carpetAreaSqFt: combined,
-                        plotAreaSqFt: updatedPlot,
-                      }));
-                    }}
-                    placeholder="e.g. 1250"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 font-bold text-base focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 tabular-nums"
-                  />
-                  <span className="absolute inset-y-0 right-0 pr-4 flex items-center text-xs font-semibold text-slate-400 pointer-events-none">
-                    sq.ft
-                  </span>
-                </div>
-
-                {property.isMultiFloorMultiplierEnabled && (
-                  <p className="text-[11px] text-indigo-700 font-semibold mt-1">
-                    Combined across {property.numberOfFloors} floors = {property.carpetAreaSqFt.toLocaleString('en-IN')} sq.ft
-                  </p>
-                )}
-              </div>
-
-              {/* Dynamic Plot / Land Area Input for Independent Villa and Gated Row House */}
-              {(property.subType === 'independent_house' || property.subType === 'row_house') && (
-                <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-100">
-                  <div className="flex items-center justify-between gap-1 mb-1.5">
-                    <label className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
-                      <Ruler className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Total Plot / Land Area (sq.ft)</span>
-                    </label>
-                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">
-                      {property.subType === 'row_house' ? 'Default 1.5× Ground Area' : 'Default 2.0× Ground Area'}
-                    </span>
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min={200}
-                      max={50000}
-                      step={25}
-                      value={property.plotAreaSqFt || defaultPlotArea}
-                      onChange={(e) =>
-                        setProperty((prev) => ({
-                          ...prev,
-                          plotAreaSqFt: Number(e.target.value) || 0,
-                        }))
-                      }
-                      placeholder={property.subType === 'row_house' ? 'e.g. 1800' : 'e.g. 2400'}
-                      className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-slate-900 font-bold text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 tabular-nums"
-                    />
-                    <span className="absolute inset-y-0 right-0 pr-4 flex items-center text-xs font-semibold text-indigo-500 pointer-events-none">
-                      plot sq.ft
-                    </span>
-                  </div>
-
-                  <p className="text-[10px] text-indigo-600/90 mt-1">
-                    Fixed land parcel size. Land value is never multiplied by floor count.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Area presets */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-xs font-medium text-slate-500 mr-1">Quick BHK Presets:</span>
-              {residentialAreaPresets.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => {
-                    const isMulti = property.isMultiFloorMultiplierEnabled;
-                    const numFloors = property.numberOfFloors || 1;
-                    const combined = isMulti ? Math.round(preset.area * numFloors) : preset.area;
-                    const plotDefault = Math.round(preset.area * (property.subType === 'row_house' ? 1.5 : 2.0));
-
-                    setProperty((prev) => ({
-                      ...prev,
-                      singleFloorCarpetAreaSqFt: preset.area,
-                      carpetAreaSqFt: combined,
-                      plotAreaSqFt: (prev.subType === 'row_house' || prev.subType === 'independent_house') ? plotDefault : prev.plotAreaSqFt,
-                      bedrooms: preset.beds,
-                      bathrooms: preset.baths,
-                    }));
-                  }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                    (property.singleFloorCarpetAreaSqFt === preset.area || (!property.isMultiFloorMultiplierEnabled && property.carpetAreaSqFt === preset.area))
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Quick Counter Buttons for Bedrooms, Bathrooms, Balconies */}
+          {/* 4. Room Counts (Bedrooms, Bathrooms, Balconies) */}
           <div className="space-y-4 pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                  Quick Room Counters
+                  Room Counts
                 </span>
                 <p className="text-xs text-slate-500">
-                  Pre-specify rooms so identical bedrooms don't need redundant video walk-throughs in Step 2.
+                  Pre-specify rooms so AI can detect primary zones and auto-extrapolate unfilmed duplicate rooms
                 </p>
               </div>
             </div>
@@ -986,12 +879,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
                 <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        bedrooms: Math.max(1, prev.bedrooms - 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBeds = Math.max(1, prev.bedrooms - 1);
+                        const updated = { ...prev, bedrooms: newBeds };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                     title="Decrease bedrooms"
                   >
@@ -1009,12 +906,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        bedrooms: Math.min(10, prev.bedrooms + 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBeds = Math.min(10, prev.bedrooms + 1);
+                        const updated = { ...prev, bedrooms: newBeds };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 flex items-center justify-center transition-colors cursor-pointer"
                     title="Increase bedrooms"
                   >
@@ -1035,12 +936,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
                 <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        bathrooms: Math.max(1, prev.bathrooms - 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBaths = Math.max(1, prev.bathrooms - 1);
+                        const updated = { ...prev, bathrooms: newBaths };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                     title="Decrease bathrooms"
                   >
@@ -1058,12 +963,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        bathrooms: Math.min(10, prev.bathrooms + 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBaths = Math.min(10, prev.bathrooms + 1);
+                        const updated = { ...prev, bathrooms: newBaths };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 flex items-center justify-center transition-colors cursor-pointer"
                     title="Increase bathrooms"
                   >
@@ -1084,12 +993,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
                 <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        balconies: Math.max(0, prev.balconies - 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBalcs = Math.max(0, prev.balconies - 1);
+                        const updated = { ...prev, balconies: newBalcs };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                     title="Decrease balconies"
                   >
@@ -1107,12 +1020,16 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setProperty((prev) => ({
-                        ...prev,
-                        balconies: Math.min(8, prev.balconies + 1),
-                      }))
-                    }
+                    onClick={() => {
+                      setProperty((prev) => {
+                        const newBalcs = Math.min(8, prev.balconies + 1);
+                        const updated = { ...prev, balconies: newBalcs };
+                        if (prev.areaMeasurementMode !== 'manual_deed') {
+                          updated.carpetAreaSqFt = calculateProvisionalCarpetArea(updated);
+                        }
+                        return updated;
+                      });
+                    }}
                     className="w-9 h-9 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 flex items-center justify-center transition-colors cursor-pointer"
                     title="Increase balconies"
                   >
@@ -1423,6 +1340,270 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
         </div>
       )}
 
+      {/* SECTION 4: AREA MEASUREMENT METHOD CHOICE CARD */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Ruler className="w-4 h-4 text-indigo-600" />
+              How do you want to measure your property area?
+            </h3>
+            <p className="text-xs text-slate-500">
+              Choose whether to have Gemini AI measure your sq.ft from video or enter Deed figures directly
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+            {isAiCameraMode ? 'AI Camera Auto-Measurement' : 'Manual Deed Entry'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* OPTION A: AI Camera Measurement (Default - Recommended) */}
+          <button
+            type="button"
+            onClick={() => {
+              setProperty((prev) => ({
+                ...prev,
+                areaMeasurementMode: 'ai_camera',
+                carpetAreaSqFt: prev.carpetAreaSqFt || calculateProvisionalCarpetArea(prev),
+              }));
+            }}
+            className={`p-5 rounded-2xl border text-left transition-all cursor-pointer relative flex flex-col justify-between ${
+              isAiCameraMode
+                ? 'bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 text-white border-indigo-600 shadow-md ring-2 ring-indigo-500/30'
+                : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                  isAiCameraMode ? 'bg-indigo-500 text-white' : 'bg-indigo-100 text-indigo-800'
+                }`}>
+                  Option A · Recommended
+                </span>
+                {isAiCameraMode && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+              </div>
+
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  isAiCameraMode ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-400/30' : 'bg-indigo-50 text-indigo-600'
+                }`}>
+                  <Camera className="w-5 h-5" />
+                </div>
+                <h4 className="text-sm sm:text-base font-extrabold leading-tight">
+                  AI Camera Measurement
+                </h4>
+              </div>
+
+              <p className={`text-xs font-medium leading-relaxed mb-3 ${isAiCameraMode ? 'text-indigo-200' : 'text-slate-600'}`}>
+                I don't know my exact sq.ft — let AI estimate area &amp; condition from video in Step 2.
+              </p>
+
+              <div className={`p-3 rounded-xl text-xs space-y-1.5 ${
+                isAiCameraMode ? 'bg-white/10 text-slate-200 border border-white/10' : 'bg-slate-50 text-slate-600 border border-slate-200/60'
+              }`}>
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400">
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span>Gemini Spatial Vision Model Active</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Detects standard 7ft doors, 2x2ft floor tiles, ceiling heights, and room perimeters to automatically calculate room dimensions.
+                </p>
+              </div>
+            </div>
+
+            <div className={`mt-4 pt-3 border-t text-xs flex items-center justify-between ${
+              isAiCameraMode ? 'border-indigo-800/60 text-indigo-300' : 'border-slate-100 text-slate-500'
+            }`}>
+              <span>Provisional Area: <strong>~{provisionalArea.toLocaleString('en-IN')} sq.ft</strong></span>
+              <span className="font-semibold text-[11px]">Finalizes in Step 2 →</span>
+            </div>
+          </button>
+
+          {/* OPTION B: Manual Deed / RERA Area */}
+          <button
+            type="button"
+            onClick={() => {
+              setProperty((prev) => ({
+                ...prev,
+                areaMeasurementMode: 'manual_deed',
+              }));
+            }}
+            className={`p-5 rounded-2xl border text-left transition-all cursor-pointer relative flex flex-col justify-between ${
+              !isAiCameraMode
+                ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-indigo-500/30'
+                : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                  !isAiCameraMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  Option B · Manual Deed
+                </span>
+                {!isAiCameraMode && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+              </div>
+
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  !isAiCameraMode ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  <FileText className="w-5 h-5" />
+                </div>
+                <h4 className="text-sm sm:text-base font-extrabold leading-tight">
+                  I know my exact Deed / RERA Carpet Area
+                </h4>
+              </div>
+
+              <p className={`text-xs font-medium leading-relaxed mb-3 ${!isAiCameraMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                Enter sq.ft manually, use Step 2 video only to grade interior luxury &amp; condition.
+              </p>
+
+              <div className={`p-3 rounded-xl text-xs space-y-1.5 ${
+                !isAiCameraMode ? 'bg-white/10 text-slate-200 border border-white/10' : 'bg-slate-50 text-slate-600 border border-slate-200/60'
+              }`}>
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-300">
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                  <span>Exact Registered Figure</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Use the carpet area mentioned in your Registered Sale Deed, Allotment Letter, or RERA filing.
+                </p>
+              </div>
+            </div>
+
+            <div className={`mt-4 pt-3 border-t text-xs flex items-center justify-between ${
+              !isAiCameraMode ? 'border-slate-800 text-slate-400' : 'border-slate-100 text-slate-500'
+            }`}>
+              <span>Current Input: <strong>{property.carpetAreaSqFt ? `${property.carpetAreaSqFt.toLocaleString('en-IN')} sq.ft` : 'None specified'}</strong></span>
+              <span className="font-semibold text-[11px]">Numeric box opens below</span>
+            </div>
+          </button>
+        </div>
+
+        {/* ONLY SHOW NUMERIC CARPET AREA INPUT BOX IF OPTION B IS EXPLICITLY CLICKED */}
+        {!isAiCameraMode && (
+          <div className="mt-4 p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  <span>Enter Deed / RERA Carpet Area</span>
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Specify the precise RERA carpet area from your legal deed documents
+                </p>
+              </div>
+              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                Deed Input Active
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  Total Carpet Area (sq.ft)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={100}
+                    max={50000}
+                    step={25}
+                    value={property.carpetAreaSqFt || ''}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      const numFloors = Math.max(1, property.numberOfFloors || 1);
+                      const single = numFloors > 1 ? Math.round(val / numFloors) : val;
+                      let updatedPlot = property.plotAreaSqFt;
+                      if (property.subType === 'row_house') {
+                        updatedPlot = Math.round(single * 1.5);
+                      } else if (property.subType === 'independent_house') {
+                        updatedPlot = Math.round(single * 2.0);
+                      }
+                      setProperty((prev) => ({
+                        ...prev,
+                        carpetAreaSqFt: val,
+                        singleFloorCarpetAreaSqFt: single,
+                        plotAreaSqFt: updatedPlot,
+                      }));
+                    }}
+                    placeholder="e.g. 1150"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 tabular-nums"
+                  />
+                  <span className="absolute inset-y-0 right-0 pr-4 flex items-center text-xs font-semibold text-slate-400 pointer-events-none">
+                    sq.ft
+                  </span>
+                </div>
+              </div>
+
+              {/* Plot area if villa or row house */}
+              {(property.subType === 'independent_house' || property.subType === 'row_house') && (
+                <div>
+                  <label className="text-xs font-bold text-indigo-900 uppercase tracking-wider block mb-1.5">
+                    Total Plot / Land Area (sq.ft)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={200}
+                      max={50000}
+                      step={25}
+                      value={property.plotAreaSqFt || defaultPlotArea}
+                      onChange={(e) =>
+                        setProperty((prev) => ({
+                          ...prev,
+                          plotAreaSqFt: Number(e.target.value) || 0,
+                        }))
+                      }
+                      placeholder="e.g. 2400"
+                      className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-slate-900 font-bold text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 tabular-nums"
+                    />
+                    <span className="absolute inset-y-0 right-0 pr-4 flex items-center text-xs font-semibold text-indigo-500 pointer-events-none">
+                      plot sq.ft
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Presets */}
+            {property.category === 'residential' && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/70">
+                <span className="text-xs font-medium text-slate-500 mr-1">Quick BHK Presets:</span>
+                {residentialAreaPresets.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const numFloors = Math.max(1, property.numberOfFloors || 1);
+                      const combined = preset.area * numFloors;
+                      const plotDefault = Math.round(preset.area * (property.subType === 'row_house' ? 1.5 : 2.0));
+                      setProperty((prev) => ({
+                        ...prev,
+                        singleFloorCarpetAreaSqFt: preset.area,
+                        carpetAreaSqFt: combined,
+                        plotAreaSqFt: (prev.subType === 'row_house' || prev.subType === 'independent_house') ? plotDefault : prev.plotAreaSqFt,
+                        bedrooms: preset.beds,
+                        bathrooms: preset.baths,
+                      }));
+                    }}
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                      property.carpetAreaSqFt === preset.area
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* SUMMARY BANNER & NEXT STEP BUTTON */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-2">
@@ -1460,7 +1641,11 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
             </span>
             <span>·</span>
             <span>
-              Combined Area: <strong className="text-white font-medium">{property.carpetAreaSqFt.toLocaleString('en-IN')} sq.ft</strong>
+              Carpet Area: <strong className="text-white font-medium">
+                {isAiCameraMode 
+                  ? `~${activeCarpetArea.toLocaleString('en-IN')} sq.ft (AI Camera in Step 2)` 
+                  : `${(property.carpetAreaSqFt || activeCarpetArea).toLocaleString('en-IN')} sq.ft (Deed)`}
+              </strong>
             </span>
             <span>·</span>
             <span>
@@ -1492,10 +1677,10 @@ export const Step1LocationProperty: React.FC<Step1Props> = ({
         <button
           type="button"
           onClick={onNext}
-          disabled={!property.carpetAreaSqFt || property.carpetAreaSqFt <= 0}
+          disabled={!isAiCameraMode && (!property.carpetAreaSqFt || property.carpetAreaSqFt <= 0)}
           className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-base rounded-xl transition-all shadow-md active:scale-[0.99] flex items-center justify-center gap-3 shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group"
         >
-          <span>Next: Property Scan</span>
+          <span>{isAiCameraMode ? 'Next: AI Video Scan' : 'Next: Guided Video Scan'}</span>
           <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
         </button>
       </div>

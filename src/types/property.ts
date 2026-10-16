@@ -23,11 +23,26 @@ export interface LocationData {
 
 export type FloorConfig = '1_floor' | '2_floors' | '3_plus_floors' | 'ground_plus_mezzanine';
 export type MunicipalSanctionStatus = 'all_floors_sanctioned' | 'ground_floor_only';
+export type AreaMeasurementMode = 'ai_camera' | 'manual_deed';
+
+export interface RoomDimensionBreakdown {
+  roomName: string;
+  category: 'filmed' | 'extrapolated' | 'manual';
+  lengthFt: number;
+  widthFt: number;
+  sqFt: number;
+  conditionScore?: number;
+  referenceUsed: string;
+  isExtrapolated?: boolean;
+}
 
 export interface PropertyDetails {
   category: PropertyCategory;
   subType: string;
+  areaMeasurementMode: AreaMeasurementMode; // 'ai_camera' (Default) | 'manual_deed'
   carpetAreaSqFt: number; // Combined total carpet area across all floors
+  aiMeasuredCarpetAreaSqFt?: number; // AI calculated carpet area from Step 2 video scan
+  aiRoomBreakdown?: RoomDimensionBreakdown[]; // Room-by-room dimensions breakdown
   singleFloorCarpetAreaSqFt?: number; // Base area for single level
   plotAreaSqFt?: number; // Total Plot / Land Area (sq.ft) for Villa / Row House
   numberOfFloors: number; // Number of floors being valued (1, 2, 3+)
@@ -99,6 +114,15 @@ export interface ZoneScanResult {
     flooringType: string;
     wallCondition: string;
   };
+  aiDetectedDimensions?: {
+    lengthFt: number;
+    widthFt: number;
+    sqFt: number;
+    conditionScore: number;
+    referenceUsed: string;
+    notes?: string;
+  };
+  isAnalyzing?: boolean;
   capturedAt: string;
 }
 
